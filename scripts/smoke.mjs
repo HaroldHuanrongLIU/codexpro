@@ -375,6 +375,28 @@ async function assertToolMode(mode, expected, hidden) {
 await assertToolMode('', ['server_config', 'codexpro_self_test', 'open_current_workspace', 'open_workspace', 'tree', 'search', 'load_skill', 'read', 'write', 'edit', 'bash', 'show_changes', 'read_handoff', 'export_pro_context', 'handoff_to_agent'], ['codexpro_inventory', 'workspace_snapshot', 'git_status', 'git_diff', 'codex_context', 'handoff_to_codex']);
 await assertToolMode('minimal', ['server_config', 'codexpro_self_test', 'open_current_workspace', 'open_workspace', 'read', 'write', 'edit', 'bash', 'show_changes'], ['tree', 'search', 'load_skill', 'read_handoff', 'export_pro_context', 'handoff_to_agent', 'codex_context']);
 
+const nonGitRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'codexpro-non-git-'));
+await fs.writeFile(path.join(nonGitRoot, 'README.md'), '# Non-git fixture\n', 'utf8');
+const nonGitClient = new McpStdioClient('node', ['dist/stdio.js', '--root', nonGitRoot, '--allow-root', nonGitRoot, '--tool-mode', 'full'], {
+  cwd: path.resolve('.'),
+  env: { ...process.env, CODEXPRO_ROOT: nonGitRoot, CODEXPRO_ALLOWED_ROOTS: nonGitRoot }
+});
+await nonGitClient.request('initialize', {
+  protocolVersion: '2024-11-05',
+  capabilities: {},
+  clientInfo: { name: 'codexpro-non-git-smoke', version: '0.1.0' }
+});
+nonGitClient.notify('notifications/initialized');
+const nonGitDiff = await nonGitClient.request('tools/call', { name: 'git_diff', arguments: { include_diff: false } });
+const nonGitPayload = JSON.stringify(nonGitDiff);
+if (!nonGitDiff.structuredContent.diff_error || !nonGitDiff.structuredContent.diff || nonGitDiff.structuredContent.changed) {
+  throw new Error(`git_diff include_diff=false hid non-git diagnostics: ${nonGitPayload}`);
+}
+if (!/not a git repository|git unavailable|fatal:/i.test(nonGitPayload)) {
+  throw new Error(`git_diff include_diff=false did not preserve the git diagnostic text: ${nonGitPayload}`);
+}
+nonGitClient.close();
+
 const lowerAgentsRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'codexpro-lower-agents-'));
 await fs.writeFile(path.join(lowerAgentsRoot, 'agents.md'), '# Lowercase agents\n\n- Lowercase instruction file loaded.\n', 'utf8');
 await fs.mkdir(path.join(lowerAgentsRoot, 'src'));

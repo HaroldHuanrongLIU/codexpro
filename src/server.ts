@@ -289,7 +289,15 @@ function normalizeGitOutput(output: string): string {
 
 function looksLikeGitError(output: string): boolean {
   const trimmed = output.trim();
-  return trimmed.startsWith("fatal:") || trimmed.startsWith("error:") || trimmed.startsWith("git unavailable or failed:");
+  const lower = trimmed.toLowerCase();
+  return (
+    trimmed.startsWith("fatal:") ||
+    trimmed.startsWith("error:") ||
+    trimmed.startsWith("git unavailable or failed:") ||
+    trimmed.startsWith("git exited with status") ||
+    trimmed.startsWith("usage: git ") ||
+    lower.includes("not a git repository")
+  );
 }
 
 function previewText(value: string, maxLines = 40, maxChars = 12_000): string {
@@ -1299,9 +1307,12 @@ export function createCodexProServer(config: CodexProConfig): McpServer {
     async (args) => {
       const workspace = workspaces.getWorkspace(args.workspace_id);
       const rawDiff = normalizeGitOutput(gitDiff(config, guard, workspace, args.path, parseBool(args.staged, false)));
-      const stats = diffStats(rawDiff);
+      const diffError = rawDiff && looksLikeGitError(rawDiff) ? rawDiff : "";
+      const stats = diffError ? { additions: 0, deletions: 0, changed: false } : diffStats(rawDiff);
       const includeDiff = parseBool(args.include_diff, true);
-      const text = includeDiff
+      const text = diffError
+        ? diffError
+        : includeDiff
         ? rawDiff
         : [
             "# Git Diff",
@@ -1319,10 +1330,11 @@ export function createCodexProServer(config: CodexProConfig): McpServer {
         path: args.path ?? "workspace diff",
         staged: parseBool(args.staged, false),
         include_diff: includeDiff,
+        diff_error: diffError || undefined,
         additions: stats.additions,
         deletions: stats.deletions,
-        changed: stats.changed,
-        diff: includeDiff ? rawDiff : ""
+        changed: !diffError && stats.changed,
+        diff: diffError || includeDiff ? rawDiff : ""
       });
     }
   );
